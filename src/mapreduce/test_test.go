@@ -165,10 +165,10 @@ func TestBasic(t *testing.T) {
 		go RunWorker(mr.address, port("worker"+strconv.Itoa(i)),
 			MapFunc, ReduceFunc, -1)
 	}
+	defer cleanup(mr)
 	mr.Wait()
 	check(t, mr.files)
 	checkWorker(t, mr.stats)
-	cleanup(mr)
 }
 
 func TestOneFailure(t *testing.T) {
