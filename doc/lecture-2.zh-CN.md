@@ -114,7 +114,7 @@ Go PRC 是 “最多调用一次”
 
 Go RPC “最多调用一次” 不能满足实验一的需要：
 
-1. 
+1.
 
 线程：
 
@@ -159,7 +159,7 @@ struct Network
     servers
     client endpoints
   mutex per network
-``` 
+```
 
 RPC 概述
 
@@ -169,12 +169,14 @@ RPC 概述
 
 ```go
 srv := MakeServer()
-srv.AddService(svc) // 一个服务器可以有多个服务，例如 Raft 和 k/v
-pass srv to net.AddServer()
+// 一个服务器可以有多个服务，例如 Raft 和 k/v
+// pass src to net.AddServer()
+srv.AddService(svc)
+
 // obj 的处理程序会响应请求
 // much like Go's rpcs.Register()
 // pass svc to srv.AddService()
-svc := MakeService(receiverObject) 
+svc := MakeService(receiverObject)
 ```
 
 ```
