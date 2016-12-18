@@ -1,4 +1,4 @@
-Lectue translation and lab code for [MIT 6.824 - Spring 2016](https://pdos.csail.mit.edu/6.824/schedule.html)
+Lecture translation and lab code for [MIT 6.824 - Spring 2016](https://pdos.csail.mit.edu/6.824/schedule.html)
 
 #### Translation:
 
