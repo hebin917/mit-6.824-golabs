@@ -13,7 +13,7 @@ LEC
 - [x] LEC 2: RPC and Threads
 - [x] LEC 3: GFS
 - [x] LEC 4: Primary-Backup Replication
-- [ ] LEC 5: Fault Tolerance: Raft(1)
+- [x] LEC 5: Fault Tolerance: Raft(1)
 - [ ] LEC 6: Fault Tolerance: Raft(2)
 - [ ] LEC 7: Guest lecturer on Go
 - [ ] LEC 8: Zookeeper
