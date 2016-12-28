@@ -296,6 +296,9 @@ func (cfg *config) checkTerms() int {
 			if term == -1 {
 				term = xterm
 			} else if term != xterm {
+				for i, raft := range cfg.rafts {
+					fmt.Printf("rf[%d].term[%d]\n", i, raft.currentTerm)
+				}
 				cfg.t.Fatalf("servers disagree on term")
 			}
 		}
