@@ -1,273 +1,263 @@
-6.824 2016 Lecture 2: Infrastructure: RPC and threads
+6.824 2016 Lecture 21: Bitcoin
 
-Most commonly-asked question: Why Go?
-  6.824 used to use C++
-    students spent time fixing bugs unrelated to distributed systems
-      e.g., they freed objects that were still in use
-  Go allows you to concentrate on distributed systems problems
-    type safe
-    garbage-collected (no use after freeing problems)
-    good support for concurrency
-    good support for RPC
-  We like programming in Go
-    simple language to learn
-  After the tutorial, use https://golang.org/doc/effective_go.html
+Bitcoin: A Peer-to-Peer Electronic Cash System, by Satoshi Nakamoto, 2008
 
-Remote Procedure Call (RPC)
-  a key piece of distributed system machinery; all the labs use RPC
-  goal: easy-to-program network communication
-    hides most details of client/server communication
-    client call is much like ordinary procedure call
-    server handlers are much like ordinary procedures
-  RPC is widely used!
+bitcoin:
+  a digital currency
+  a public ledger to prevent double-spending
+  no centralized trust or mechanism <-- this is hard!
 
-RPC ideally makes net communication look just like fn call:
-  Client:
-    z = fn(x, y)
-  Server:
-    fn(x, y) {
-      compute
-      return z
-    }
-  RPC aims for this level of transparency
+why might people want a digital currency?
+  for online purchases, and b/c there's no direct dollar payment system
+  credit cards have worked well but have problems
+    insecure -> fraud -> fees, restrictions, reversals
+    record of all your purchases
 
-Go example:
-  https://golang.org/pkg/net/rpc/
+what's hard technically?
+  forgery
+  double spending
+  theft
 
-RPC message diagram:
-  Client             Server
-    request--->
-       <---response
+what's hard socially/economically?
+  why does it have value?
+  how to pay for infrastructure?
+  monetary policy (intentional inflation &c)
+  laws (taxes, laundering, drugs, terrorists)
 
-Software structure
-  client app         handlers
-    stubs           dispatcher
-   RPC lib           RPC lib
-     net  ------------ net
+idea: signed sequence of transactions
+  (this is the straightforward part of Bitcoin)
+  there are a bunch of coins, each owned by someone
+  every coin has a sequence of transaction records
+    one for each time this coin was transferred as payment
+  a coin's latest transaction indicates who owns it now
+
+what's in a transaction record?
+  pub(Un): public key of new owner
+  hash(Tp): hash of this coin's previous transaction record
+  sig(Up): signature over transaction by previous owner's private key
+  (BitCoin is much more complex: amount (fractional), multiple in/out, ...)
+
+transaction example:
+  Y owns a coin, previously given to it by X:
+    T7: pub(Y), hash(T6), sig(X)
+  Y buys a hamburger from Z and pays with this coin
+    Z sends public key to Y
+    Y creates a new transaction and signs it
+    T8: pub(Z), hash(T7), sig(Y)
+  Y sends transaction to Z
+  Z verifies:
+    T8's sig() corresponds to T7's pub()
+  Z gives hamburger to Y
+
+Z's "balance" is set of unspent transactions for which Z knows private key
+  the "identity" of a coin is the (hash of) its most recent xaction
+  Z "owns" the coin: has private key that allows Z to make next xaction
+
+can anyone other than the owner spend a coin?
+  current owner's private key needed to sign next transaction
+  danger: attacker can steal Z's private key, e.g. from PC or smartphone
+
+can a coin's owner spend it twice in this scheme?
+  Y creates two transactions for same coin: Y->Z, Y->Q
+    both with hash(T7)
+  Y shows different transaction to Z and Q at same time
+  both transactions look good, including signatures and hash
+  now both Z and Q will give hamburgers to Y
+
+why was double-spending possible?
+  b/c Z and Q didn't know complete set of transactions
+
+what do we need?
+  ensure everyone agrees on the full sequence of transactions
+    e.g. agrees on which of Y->Z and Y->Q come first
+    a "public ledger"
+  ensure Y can't un-do an agreed transaction
+
+why not rely on CitiBank, or Federal Reserve, to choose the order?
+
+why not this:
+  1000s of peers, run by anybody, no trust required in any one peer
+  peers flood new transactions over "overlay"
+  transaction Y->Z only acceptable if majority of peers think it is valid
+    i.e. they don't know of any Y->Q
+     majority overlap ensures double-spend is detected
+  but how to decide if majority? how to count peers?
+    perhaps distinct IP addresses?
+  problem: "sybil attack"
+    IP addresses are not secure -- easy to forge
+    attacker pretends to have 10,000 computers -- majority
+    when Z asks, attacker's majority says "we only know of Y->Z"
+    when Q asks, attacker's majority says "we only know of Y->Q"
+  the possibility of sybil attack has derailed many p2p schemes
+
+the BitCoin block chain
+  the block chain contains transactions on all coins
+  many peers
+    each with a complete copy of the whole chain
+    all transactions (and blocks) flooded to all peers
+  each block:
+    hash(prevblock)
+    set of transactions
+    "nonce" (not quite a nonce in the usual cryptographic sense)
+    current time (wall clock timestamp)
+  a transaction isn't real unless it's in the block chain
+  new block every 10 minutes containing xactions since prev block
+
+who creates each new block?
+  this is "mining"
+  requirement: hash(block) has N leading zeros
+  peers try nonce values until this works out
+  trying one nonce is fast, but most nonces won't work
+    it's like flipping a zillion-sided coin until it comes up heads
+    each flip has an independent (small) chance of success
+    mining a block *not* a specific fixed amount of work
+  it would likely take one CPU months to create one block
+  but thousands of peers are working on it
+  such that expected time to first to find is about 10 minutes
+  the winner sends the new block to all peers
+
+how does a Y->Z transaction work w/ block chain?
+  start: all peers know ...<-B5
+    and are working on B6 (trying different nonces)
+  Y sends Y->Z transaction to peers, which flood it
+  peers buffer the transaction until B6 computed
+  peers that heard Y->Z include it in next block
+  so eventually ...<-B5<-B6<-B7, where B7 includes Y->Z
+
+what if Y sends out Y->Z and Y->Q at the same time?
+  i.e. Y attempts to double-spend
+  no correct peer will accept both, so a block will have one but not both
+
+Q: could there be *two* different successors to B6?
+
+what happens if Y tells some peers about Y->Z, others about Y->Q?
+  perhaps use network DoS to prevent full flooding of either
+  perhaps there will be a fork: B6<-BZ and B6<-BQ
+
+how is a forked chain resolved?
+  each peer initially believes whichever of BZ/BQ it saw first
+  tries to create a successor
+  if many more saw BZ than BQ, more will mine for BZ,
+    so BZ successor likely to be created first
+  if exactly half-and-half, one successor will be found somewhat before other
+    since significant variance in mining success time
+  thus one fork or the other is likely to get a successor first
+  thus one fork will get longer first
+  peers always switch to mining the longest fork, re-inforcing agreement
+
+thus:
+  temporary double spending is possible, due to forks
+  but one side or the other of the fork highly likely to disappear
+  thus if Z sees Y->Z with a few blocks after it,
+    it's very unlikely that it could be overtaken by a
+    different fork containing Y->Q
+  if Z is selling a high-value item, Z should wait for a few
+    blocks before shipping it
+  if Z is selling something cheap, maybe OK to wait just for some peers
+    to see Y->Z (but not in block)
+
+can an attacker modify a block in the middle of the block chain?
+  not directly, since subsequent block holds real block's hash
+
+could attacker start a fork from an old block, with Y->Q instead of Y->Z?
+  yes -- but fork must be longer in order for peers to accept it
+  so if attacker starts N blocks behind, it must generate N+M+1
+    blocks on its fork before main fork is extended by M
+  i.e. attacker must mine blocks *faster* than the other peers
+  if the attacker has just one CPU, will take months to create even a few blocks
+    by that time the main chain will be much longer
+    no peer will switch to the attacker's shorter chain
+    attacker has no chance
+  if the attacker has 1000s of CPUs -- more than all the honest
+    bitcoin peers -- then the attacker can create a winning fork,
+    and thus change the chain and double-spend
+
+there's still a majority voting system hiding here
+  peers cast votes by mining to extend the longest chain
  
-A few details:
-  Which server function (handler) to call?
-  Marshalling: format data into packets
-    Tricky for arrays, pointers, objects, &c
-    Go's RPC library is pretty powerful!
-    some things you cannot pass: e.g., channels, functions
-  Binding: how does client know who to talk to?
-    Maybe client supplies server host name
-    Maybe a name service maps service names to best server host
-  Threads:
-    Clients may have many threads, so > 1 call outstanding, match up replies
-    Handlers may be slow, so server often runs each in a thread
+summary:
+  if attacker controls majority of CPU power, can force honest
+    peers to switch from real chain to one created by the attacker
+  otherwise not
 
-RPC problem: what to do about failures?
-  e.g. lost packet, broken network, slow server, crashed server
+validation checks:
+  peer, new xaction:
+    no other transaction spends the same previous transaction
+    signature is by private key of previous transaction
+    [ then will add transaction to txn list for new block being mined ]
+  peer, new block:
+    hash value has enough leading zeroes (i.e. nonce is right, proves work)
+    previous block hash exists
+    new chain longer than current chain
+    all transactions in block are valid
+  Z:
+    Y->Z is in a block
+    Z's public key / address is in the transaction
+    there's several more blocks in the chain
+  (other stuff has to be checked as well, lots of details)
 
-What does a failure look like to the client RPC library?
-  Client never sees a response from the server
-  Client does *not* know if the server saw the request!
-    Maybe server/net failed just before sending reply
-  [diagram of lost reply]
+where does each bitcoin originally come from?
+  each time a peer mines a block, it gets 25 bitcoins (currently)
+  it puts its public key in a special transaction in the block
+  this is incentive for people to operate bitcoin peers
 
-Simplest scheme: "at least once" behavior
-  RPC library waits for response for a while
-  If none arrives, re-send the request
-  Do this a few times
-  Still no response -- return an error to the application
+Q: what if lots of miners join, so blocks are created faster?
 
-Q: is "at least once" easy for applications to cope with?
+Q: 10 minutes is annoying; could it be made much shorter?
 
-Simple problem w/ at least once:
-  client sends "deduct $10 from bank account"
+Q: are transactions anonymous?
 
-Q: what can go wrong with this client program?
-  Put("k", 10) -- an RPC to set key's value in a DB server
-  Put("k", 20) -- client then does a 2nd Put to same key
-  [diagram, timeout, re-send, original arrives very late]
+Q: if I steal bitcoins, is it safe to spend them?
 
-Q: is at-least-once ever OK?
-  yes: if it's OK to repeat operations, e.g. read-only op
-  yes: if application has its own plan for coping w/ duplicates
-    which you will need for Lab 1
+Q: can bitcoins be forged, i.e. a totally fake coin created?
 
-Better RPC behavior: "at most once"
-  idea: server RPC code detects duplicate requests
-    returns previous reply instead of re-running handler
-  Q: how to detect a duplicate request?
-  client includes unique ID (XID) with each request
-    uses same XID for re-send
-  server:
-    if seen[xid]:
-      r = old[xid]
-    else
-      r = handler()
-      old[xid] = r
-      seen[xid] = true
+Q: what can adversary do with a majority of CPU power in the world?
+   can double-spend
+   cannot steal others' bitcoins
+   can prevent xaction from entering chain
+   can revert past xactions (by building longer chain from before that block)
 
-some at-most-once complexities
-  this will come up in labs 2 and on
-  how to ensure XID is unique?
-    big random number?
-    combine unique client ID (ip address?) with sequence #?
-  server must eventually discard info about old RPCs
-    when is discard safe?
-    idea:
-      unique client IDs
-      per-client RPC sequence numbers
-      client includes "seen all replies <= X" with every RPC
-      much like TCP sequence #s and acks
-    or only allow client one outstanding RPC at a time
-      arrival of seq+1 allows server to discard all <= seq
-    or client agrees to keep retrying for < 5 minutes
-      server discards after 5+ minutes
-  how to handle dup req while original is still executing?
-    server doesn't know reply yet; don't want to run twice
-    idea: "pending" flag per executing RPC; wait or ignore
+Q: what if the block format needs to be changed?
+   esp if new format wouldn't be acceptable to previous s/w version?
 
-What if an at-most-once server crashes and re-starts?
-  if at-most-once duplicate info in memory, server will forget
-    and accept duplicate requests after re-start
-  maybe it should write the duplicate info to disk?
-  maybe replica server should also replicate duplicate info?
+Q: how do peers find each other?
 
-What about "exactly once"?
-  at-most-once plus unbounded retries plus fault-tolerant service
-  Lab 3
+Q: what if a peer has been tricked into only talking to corrupt peers?
+   how about if it talks to one good peer and many colluding bad peers?
 
-Go RPC is "at-most-once"
-  open TCP connection
-  write request to TCP connection
-  TCP may retransmit, but server's TCP will filter out duplicates
-  no retry in Go code (i.e. will NOT create 2nd TCP connection)
-  Go RPC code returns an error if it doesn't get a reply
-    perhaps after a timeout (from TCP)
-    perhaps server didn't see request
-    perhaps server processed request but server/net failed before reply came back
+Q: could a brand-new peer be tricked into using the wrong chain entirely?
+   what if a peer rejoins after a few years disconnection?
+   a few days of disconnection?
 
-Go RPC's at-most-once isn't enough for Lab 1
-  it only applies to a single RPC call
-  if worker doesn't respond, the master re-send to it to another worker
-    but original worker may have not failed, and is working on it too
-  Go RPC can't detect this kind of duplicate
-    No problem in lab 1, which handles at application level
-    Lab 2 will explicitly detect duplicates
+Q: if more people (CPUs) mine, will blocks be created at a faster rate?
+   important use of block timestamps: control difficulty (hash target)
 
-Threads
-  threads are a fundamental server structuring tool
-  you'll use them a lot in the labs
-  they can be tricky
-  useful with RPC 
-  Go calls them goroutines; everyone else calls them threads
+Q: how rich are you likely to get with one machine mining?
 
-Thread = "thread of control"
-  threads allow one program to (logically) do many things at once
-  the threads share memory
-  each thread includes some per-thread state:
-    program counter, registers, stack
+Q: why does it make sense for the mining reward to decrease with time?
 
-Threading challenges:
-  sharing data 
-     two threads modify the same variable at same time?
-     one thread reads data that another thread is changing?
-     these problems are often called races
-     need to protect invariants on shared data
-     use Go sync.Mutex
-  coordination between threads
-    e.g. wait for all Map threads to finish
-    use Go channels
-  deadlock 
-     thread 1 is waiting for thread 2
-     thread 2 is waiting for thread 1
-     easy detectable (unlike races)
-  lock granularity
-     coarse-grained -> simple, but little concurrency/parallelism
-     fine-grained -> more concurrency, more races and deadlocks
-  let's look at labrpc RPC package to illustrate these problems
+Q: is it a problem that there will be a fixed number of coins?
+   what if the real economy grows (or shrinks)?
 
-look at today's handout -- labrpc.go
-  it similar to Go's RPC system, but with a simulated network
-    the network delays requests and replies
-    the network loses requests and replies
-    the network re-orders requests and replies
-    useful for testing labs 2 etc.
-  illustrates threads, mutexes, channels
-  complete RPC package is written in Go itself
+Q: why do bitcoins have value?
+   e.g., 1 BTC appears to be around $456 on may 1 2016.
 
-structure
-  
+Q: will bitcoin scale well?
+   as transaction rate increases?
+     claim CPU limits to 4,000 tps (signature checks)
+     more than Visa but less than cash
+   as block chain length increases?
+     do you ever need to look at very old blocks?
+     do you ever need to xfer the whole block chain?
+     merkle tree: block headers vs txn data.
 
+Q: could Bitcoin have been just a ledger w/o a new currency?
+   e.g. have dollars be the currency? 
+   since the currency part is pretty awkward.
+   (enforcement... mining reward...)
 
-struct Network
-  description of network
-    servers
-    client endpoints
-  mutex per network
-
-RPC overview
-  many examples in test_test.go
-    e.g., TestBasic()
-  application calls Call()
-     reply := end.Call("Raft.AppendEntries", args, &reply) --   send an RPC, wait for reply
-  servers side:
-     srv := MakeServer()
-     srv.AddService(svc) -- a server can have multiple services, e.g. Raft and k/v
-       pass srv to net.AddServer()
-     svc := MakeService(receiverObject) -- obj's methods will handle RPCs
-       much like Go's rpcs.Register()
-       pass svc to srv.AddService()
-
-struct Server
-  a server support many services
-
-AddService
-  add a service name
-  Q: why a lock?
-  Q: what is defer()?
-  
-Dispatch
-  dispatch a request to the right service
-  Q: why hold a lock?
-  Q: why not hold lock to end of function?
-
-Call():
-  Use reflect to find type of argument
-  Use gob marshall argument
-  e.ch is the channel to the network to send request
-  Make a channel to receive reply from network ( <- req.replyCh)
-
-MakeEnd():
-  has a thread/goroutine that simulates the network
-    reads from e.ch and process requests
-    each requests is processed in a separate goroutine
-      Q: can an end point have many outstanding requests?
-    Q: why rn.mu.Lock()?
-    Q: what does lock protect?
-
-ProcessReq():
-  finds server endpoint
-  if network unreliable, may delay and drop requests,
-  dispatch request to server in a new thread
-  waits on reply by reading ech or until 100 msec has passed
-    100 msec just to see if server is dead
-  then return reply
-    Q: who will read the reply?
-  Q: is ok that ProcessReq doesn't hold rn lock?
-
-Service.dispatch():
- find method for a request
- unmarshall arguments
- call method
- marshall reply
- return reply
-
-Go's "memory model" requires explicit synchronization to communicate!
-  This code is not correct:
-    var x int
-    done := false
-    go func() { x = f(...); done = true }
-    while done == false { }
-  it's very tempting to write, but the Go spec says it's undefined
-  use a channel or sync.WaitGroup or instead
-
-Study the Go tutorials on goroutines and channels
-  Use Go's race detector:
-    https://golang.org/doc/articles/race_detector.html
-    go test --race mypkg
+key idea: block chain
+  public ledger is a great idea
+  decentralization might be good
+  mining is a clever way to avoid sybil attacks
+  tieing ledger to new currency seems awkward, maybe necessary
