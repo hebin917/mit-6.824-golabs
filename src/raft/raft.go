@@ -18,9 +18,12 @@ package raft
 //
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"labrpc"
 	"math"
+	"reflect"
 	"sync"
 )
 
@@ -104,32 +107,40 @@ func (rf *Raft) GetState() (int, bool) {
 	return rf.currentTerm, rf.role == Leader
 }
 
-//
-// save Raft's persistent state to stable storage,
+// persists save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
-//
 func (rf *Raft) persist() {
-	// Your code here.
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := gob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
-//
-// restore previously persisted state.
-//
+// readPersist restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
-	// Your code here.
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := gob.NewDecoder(r)
-	// d.Decode(&rf.xxx)
-	// d.Decode(&rf.yyy)
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.currentTerm)
+	d.Decode(&rf.votedFor)
+	d.Decode(&rf.logs)
+}
+
+func (rf *Raft) intializeNextIndex() {
+	for i := range rf.nextIndex {
+		rf.nextIndex[i] = len(rf.logs)
+	}
+}
+
+func (rf *Raft) commit(fromIndex, toIndex int) {
+	for index := fromIndex; index <= toIndex; index++ {
+		msg := ApplyMsg{Index: index, Command: rf.logs[index].Command}
+		rf.applyCh <- msg
+		fmt.Printf("rf[%d] send ApplyMsg: %v\n", rf.me, msg)
+	}
 }
 
 // RequestVoteArgs examples RequestVote RPC arguments structure.
@@ -205,12 +216,16 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int
 	Success bool
+	server  int
 }
 
 // RequestAppendEntries handles request for appending entries
 func (rf *Raft) RequestAppendEntries(args AppendEntriesArgs, reply *AppendEntriesReply) {
+	fmt.Printf("rf[%d] args of appendEntries: %#v\n", rf.me, args)
+
 	// request is stale
 	if args.Term < rf.currentTerm {
+		fmt.Printf("rf[%d, term=%d] stale args:%v", rf.me, rf.currentTerm, args)
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
@@ -224,7 +239,7 @@ func (rf *Raft) RequestAppendEntries(args AppendEntriesArgs, reply *AppendEntrie
 	}
 
 	// entries is too new
-	if len(rf.logs) < args.PrevLogIndex || rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if len(rf.logs)-1 < args.PrevLogIndex || rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
 		reply.Success = false
 		return
 	}
@@ -234,13 +249,19 @@ func (rf *Raft) RequestAppendEntries(args AppendEntriesArgs, reply *AppendEntrie
 
 	// update rf.logs
 	rf.mu.Lock()
-	copy(rf.logs[args.PrevLogIndex:], args.Entries)
+	rf.logs = append(rf.logs[:args.PrevLogIndex+1], args.Entries...)
+	rf.mu.Unlock()
+	fmt.Printf("rf[%d].logs=%v, commitIndex=%d\n", rf.me, rf.logs, rf.commitIndex)
 
 	// update rf.commitIndex
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = int(math.Min(float64(rf.commitIndex), float64(len(rf.logs))))
+		newCommitIndex := int(math.Min(float64(args.LeaderCommit), float64(len(rf.logs)-1)))
+		fmt.Printf("newCommitIndex=%d\n", newCommitIndex)
+		go rf.commit(rf.commitIndex+1, newCommitIndex)
+		rf.mu.Lock()
+		rf.commitIndex = newCommitIndex
+		rf.mu.Unlock()
 	}
-	rf.mu.Unlock()
 }
 
 // AppendEntriesReply.Entries is empty
@@ -265,12 +286,30 @@ func (rf *Raft) sendRequestAppendEntries(server int, args AppendEntriesArgs, rep
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) {
+	index = -1
+	term, isLeader = rf.GetState()
+	for i, log := range rf.logs {
+		if reflect.DeepEqual(log.Command, command) {
+			index = i
+		}
+	}
+	if isLeader && index == -1 {
+		index = len(rf.logs)
+	}
 
-	return index, term, isLeader
+	if !isLeader {
+		return
+	}
+
+	// save into rf.logs
+	rf.mu.Lock()
+	rf.logs = append(rf.logs, Entry{Term: term, Command: command})
+	rf.nextIndex[rf.me] = len(rf.logs)
+	rf.matchIndex[rf.me] = len(rf.logs) - 1
+	fmt.Printf("rf[%d] receive command[%v]\n", rf.me, command)
+	rf.mu.Unlock()
+	return
 }
 
 // Kill the tester calls Kill() when a Raft instance won't
@@ -309,6 +348,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+	rf.intializeNextIndex()
 	fmt.Printf("rf[%d] set heartbeatTime\n", rf.me)
 	go rf.heartBeatTimer()
 	return rf

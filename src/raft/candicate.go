@@ -17,7 +17,11 @@ func (rf *Raft) electionTimer() {
 			return
 
 		// win to be a leader
-		case <-win:
+		case won := <-win:
+			if !won {
+				rf.resetHeartBeatTimer()
+				rf.convertToFollower(rf.currentTerm-1, -1)
+			}
 			return
 
 		// receive a leader request
@@ -66,9 +70,17 @@ func (rf *Raft) election(win chan bool) {
 	}
 
 	grantedCount := 1
+	denyCount := 0
 	for replty := range grantedChan {
 		if replty.VoteGranted {
 			grantedCount++
+		} else {
+			denyCount++
+		}
+
+		if denyCount > len(rf.peers)/2 {
+			win <- false
+			return
 		}
 
 		// convert to be a leader and stop election timer
