@@ -108,6 +108,7 @@ While being able to elect a leader is useful, we want to use Raft to keep a cons
 > Hint: While the Raft leader is the only server that causes entries to be appended to the log, all the servers need to independently give newly committed entries to their local service replica (via their own applyCh). Because of this, you should try to keep these two activities as separate as possible.
 
 > Hint: Figure out the minimum number of messages Raft should use when reaching agreement in non-failure cases and make your implementation use that minimum.
+
 A Raft-based server must be able to pick up where it left off, and continue if the computer it's on reboots. This requires that Raft keep persistent state that survives a reboot (the paper's Figure 2 mentions which state should be persistent).
 
 A “real” implementation would do this by writing Raft's persistent state to disk each time it changes, and reading the latest saved state from disk when restarting after a reboot. Your implementation won't use the disk; instead, it will save and restore persistent state from a Persister object (see persister.go). Whoever calls Make() supplies a Persister that initially holds Raft's most recently persisted state (if any). Raft should initialize its state from that Persister, and should use it to save its persistent state each time the state changes. You can use the ReadRaftState() and SaveRaftState() methods for this respectively.
