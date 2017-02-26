@@ -136,3 +136,5 @@ Raft 节点之间使用 `labrpc` 进行通信。`raft.go` 里面有选举Leader�
 提示：
 1. RPC 和 GOB 只会对 struct 的公开属性即首字母大写有效。
 2. 有些严格测试需要实现论文的第7页尾到第8页上部灰线标记的部分，即当 AppendEntries 中的 log 与本 follower 冲突时，给 leader 反馈冲突的 term 和下一个 index。
+
+

@@ -4,9 +4,9 @@ Lecture translation and lab code for [MIT 6.824 - Spring 2016](https://pdos.csai
 
 Lab
 - [x] Lab 1: MapReduce
-- [ ] Lab 2: Raft
-- [ ] Lab 3: KV Raft
-- [ ] Lab 4: Sharded KV
+- [x] Lab 2: Raft
+- [x] Lab 3: KV Raft
+- [x] Lab 4: Sharded KV
 
 LEC
 - [x] LEC 1: Introduction
